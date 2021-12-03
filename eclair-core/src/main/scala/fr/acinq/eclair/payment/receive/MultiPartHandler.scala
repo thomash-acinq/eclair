@@ -27,7 +27,7 @@ import fr.acinq.eclair.channel.{CMD_FAIL_HTLC, CMD_FULFILL_HTLC, RES_SUCCESS}
 import fr.acinq.eclair.db._
 import fr.acinq.eclair.payment.Monitoring.{Metrics, Tags}
 import fr.acinq.eclair.payment.PaymentRequest.{ExtraHop, PaymentRequestFeatures}
-import fr.acinq.eclair.payment.{IncomingPaymentPacket, PaymentReceived, PaymentRequest}
+import fr.acinq.eclair.payment.{IncomingPaymentPacket, Bolt11Invoice, PaymentReceived, PaymentRequest}
 import fr.acinq.eclair.wire.protocol._
 import fr.acinq.eclair.{Features, Logs, MilliSatoshi, NodeParams, randomBytes32}
 
@@ -87,13 +87,13 @@ class MultiPartHandler(nodeParams: NodeParams, register: ActorRef, db: IncomingP
               val paymentHash = Crypto.sha256(paymentPreimage)
               val desc = Left("Donation")
               val features = if (nodeParams.features.hasFeature(Features.BasicMultiPartPayment)) {
-                PaymentRequestFeatures(Features.BasicMultiPartPayment.optional, Features.PaymentSecret.mandatory, Features.VariableLengthOnion.mandatory)
+                Features(Features.BasicMultiPartPayment.optional, Features.PaymentSecret.mandatory, Features.VariableLengthOnion.mandatory)
               } else {
-                PaymentRequestFeatures(Features.PaymentSecret.mandatory, Features.VariableLengthOnion.mandatory)
+                Features(Features.PaymentSecret.mandatory, Features.VariableLengthOnion.mandatory)
               }
               // Insert a fake invoice and then restart the incoming payment handler
-              val paymentRequest = PaymentRequest(nodeParams.chainHash, amount, paymentHash, nodeParams.privateKey, desc, nodeParams.minFinalExpiryDelta, paymentSecret = p.payload.paymentSecret, features = features)
-              log.debug("generated fake payment request={} from amount={} (KeySend)", PaymentRequest.write(paymentRequest), amount)
+              val paymentRequest = Bolt11Invoice(nodeParams.chainHash, amount, paymentHash, nodeParams.privateKey, desc, nodeParams.minFinalExpiryDelta, paymentSecret = p.payload.paymentSecret, features = features)
+              log.debug("generated fake payment request={} from amount={} (KeySend)", paymentRequest.write, amount)
               db.addIncomingPayment(paymentRequest, paymentPreimage, paymentType = PaymentType.KeySend)
               ctx.self ! p
             case _ =>
@@ -228,12 +228,12 @@ object MultiPartHandler {
                 val allowMultiPart = nodeParams.features.hasFeature(Features.BasicMultiPartPayment)
                 val f2 = if (allowMultiPart) Seq(Features.BasicMultiPartPayment.optional) else Nil
                 val f3 = if (nodeParams.enableTrampolinePayment) Seq(Features.TrampolinePayment.optional) else Nil
-                PaymentRequest.PaymentRequestFeatures(f1 ++ f2 ++ f3: _*)
+                Features(f1 ++ f2 ++ f3: _*)
               }
-              val paymentRequest = PaymentRequest(nodeParams.chainHash, amount_opt, paymentHash, nodeParams.privateKey, description, nodeParams.minFinalExpiryDelta, fallbackAddress_opt, expirySeconds = Some(expirySeconds), extraHops = extraHops, features = features)
-              context.log.debug("generated payment request={} from amount={}", PaymentRequest.write(paymentRequest), amount_opt)
-              nodeParams.db.payments.addIncomingPayment(paymentRequest, paymentPreimage, paymentType)
-              paymentRequest
+              val invoice = Bolt11Invoice(nodeParams.chainHash, amount_opt, paymentHash, nodeParams.privateKey, description, nodeParams.minFinalExpiryDelta, fallbackAddress_opt, expirySeconds = Some(expirySeconds), extraHops = extraHops, features = features)
+              context.log.debug("generated payment request={} from amount={}", invoice.write, amount_opt)
+              nodeParams.db.payments.addIncomingPayment(invoice, paymentPreimage, paymentType)
+              invoice
             } match {
               case Success(paymentRequest) => replyTo ! paymentRequest
               case Failure(exception) => replyTo ! Status.Failure(exception)
@@ -298,7 +298,7 @@ object MultiPartHandler {
   }
 
   private def validateInvoiceFeatures(payment: IncomingPaymentPacket.FinalPacket, pr: PaymentRequest)(implicit log: LoggingAdapter): Boolean = {
-    if (payment.payload.amount < payment.payload.totalAmount && !pr.features.allowMultiPart) {
+    if (payment.payload.amount < payment.payload.totalAmount && !pr.features.hasFeature(Features.BasicMultiPartPayment)) {
       log.warning("received multi-part payment but invoice doesn't support it for amount={} totalAmount={}", payment.add.amountMsat, payment.payload.totalAmount)
       false
     } else if (payment.payload.amount < payment.payload.totalAmount && !pr.paymentSecret.contains(payment.payload.paymentSecret)) {

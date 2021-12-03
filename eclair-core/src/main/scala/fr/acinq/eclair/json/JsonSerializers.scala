@@ -321,11 +321,11 @@ object DirectedHtlcSerializer extends ConvertClassSerializer[DirectedHtlc](h => 
 // @formatter:on
 
 object PaymentRequestSerializer extends MinimalSerializer({
-  case p: PaymentRequest =>
-    val expiry = p.expiry.map(ex => JField("expiry", JLong(ex))).toSeq
+  case p: Bolt11Invoice =>
+    val expiry = Seq(JField("expiry", JLong(p.relativeExpiry)))
     val minFinalCltvExpiry = p.minFinalCltvExpiryDelta.map(mfce => JField("minFinalCltvExpiry", JInt(mfce.toInt))).toSeq
     val amount = p.amount.map(msat => JField("amount", JLong(msat.toLong))).toSeq
-    val features = JField("features", Extraction.decompose(p.features.features)(
+    val features = JField("features", Extraction.decompose(p.features)(
       DefaultFormats +
         FeatureKeySerializer +
         FeatureSupportSerializer +
@@ -343,7 +343,7 @@ object PaymentRequestSerializer extends MinimalSerializer({
     val fieldList = List(JField("prefix", JString(p.prefix)),
       JField("timestamp", JLong(p.timestamp.toLong)),
       JField("nodeId", JString(p.nodeId.toString())),
-      JField("serialized", JString(PaymentRequest.write(p))),
+      JField("serialized", JString(p.write)),
       p.description.fold(string => JField("description", JString(string)), hash => JField("descriptionHash", JString(hash.toHex))),
       JField("paymentHash", JString(p.paymentHash.toString()))) ++
       expiry ++

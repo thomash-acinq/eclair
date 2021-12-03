@@ -173,12 +173,12 @@ class MultiPartHandlerSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike 
     sender.send(handlerWithMpp, ReceivePayment(Some(42000 msat), Left("1 coffee")))
     val pr1 = sender.expectMsgType[PaymentRequest]
     assert(pr1.minFinalCltvExpiryDelta === Some(nodeParams.minFinalExpiryDelta))
-    assert(pr1.expiry === Some(Alice.nodeParams.paymentRequestExpiry.toSeconds))
+    assert(pr1.relativeExpiry === Some(Alice.nodeParams.paymentRequestExpiry.toSeconds))
 
     sender.send(handlerWithMpp, ReceivePayment(Some(42000 msat), Left("1 coffee with custom expiry"), expirySeconds_opt = Some(60)))
     val pr2 = sender.expectMsgType[PaymentRequest]
     assert(pr2.minFinalCltvExpiryDelta === Some(nodeParams.minFinalExpiryDelta))
-    assert(pr2.expiry === Some(60))
+    assert(pr2.relativeExpiry === Some(60))
   }
 
   test("Payment request generation with trampoline support") { _ =>

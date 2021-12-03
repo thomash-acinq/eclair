@@ -23,7 +23,7 @@ import fr.acinq.eclair.db.Monitoring.Tags.DbBackends
 import fr.acinq.eclair.db.PaymentsDb.{decodeFailures, decodeRoute, encodeFailures, encodeRoute}
 import fr.acinq.eclair.db._
 import fr.acinq.eclair.db.sqlite.SqliteUtils._
-import fr.acinq.eclair.payment.{PaymentFailed, PaymentRequest, PaymentSent}
+import fr.acinq.eclair.payment.{Bolt11Invoice, PaymentFailed, PaymentRequest, PaymentSent}
 import fr.acinq.eclair.{MilliSatoshi, TimestampMilli, TimestampMilliLong}
 import grizzled.slf4j.Logging
 import scodec.bits.BitVector
@@ -60,7 +60,7 @@ class SqlitePaymentsDb(sqlite: Connection) extends PaymentsDb with Logging {
       statement.executeUpdate("ALTER TABLE received_payments RENAME TO _received_payments_old")
       // We make payment request expiration not null in the received_payments table.
       // When it was previously set to NULL the default expiry should apply.
-      statement.executeUpdate(s"UPDATE _received_payments_old SET expire_at = created_at + ${PaymentRequest.DEFAULT_EXPIRY_SECONDS} WHERE expire_at IS NULL")
+      statement.executeUpdate(s"UPDATE _received_payments_old SET expire_at = created_at + ${Bolt11Invoice.DEFAULT_EXPIRY_SECONDS} WHERE expire_at IS NULL")
       statement.executeUpdate("CREATE TABLE received_payments (payment_hash BLOB NOT NULL PRIMARY KEY, payment_preimage BLOB NOT NULL, payment_request TEXT NOT NULL, received_msat INTEGER, created_at INTEGER NOT NULL, expire_at INTEGER NOT NULL, received_at INTEGER)")
       statement.executeUpdate("INSERT INTO received_payments (payment_hash, payment_preimage, payment_request, received_msat, created_at, expire_at, received_at) SELECT payment_hash, preimage, payment_request, received_msat, created_at, expire_at, received_at FROM _received_payments_old")
       statement.executeUpdate("DROP table _received_payments_old")
@@ -132,7 +132,7 @@ class SqlitePaymentsDb(sqlite: Connection) extends PaymentsDb with Logging {
       statement.setLong(7, sent.recipientAmount.toLong)
       statement.setBytes(8, sent.recipientNodeId.value.toArray)
       statement.setLong(9, sent.createdAt.toLong)
-      statement.setString(10, sent.paymentRequest.map(PaymentRequest.write).orNull)
+      statement.setString(10, sent.paymentRequest.map(_.write).orNull)
       statement.executeUpdate()
     }
   }
@@ -236,9 +236,9 @@ class SqlitePaymentsDb(sqlite: Connection) extends PaymentsDb with Logging {
       statement.setBytes(1, pr.paymentHash.toArray)
       statement.setBytes(2, preimage.toArray)
       statement.setString(3, paymentType)
-      statement.setString(4, PaymentRequest.write(pr))
+      statement.setString(4, pr.write)
       statement.setLong(5, pr.timestamp.toTimestampMilli.toLong) // BOLT11 timestamp is in seconds
-      statement.setLong(6, (pr.timestamp + pr.expiry.getOrElse(PaymentRequest.DEFAULT_EXPIRY_SECONDS)).toLong.seconds.toMillis)
+      statement.setLong(6, (pr.timestamp + pr.relativeExpiry).toLong.seconds.toMillis)
       statement.executeUpdate()
     }
   }

@@ -102,10 +102,15 @@ object Features {
   def apply(bytes: ByteVector): Features = apply(bytes.bits)
 
   def apply(bits: BitVector): Features = {
-    val all = bits.toIndexedSeq.reverse.zipWithIndex.collect {
-      case (true, idx) if knownFeatures.exists(_.optional == idx) => Right((knownFeatures.find(_.optional == idx).get, Optional))
-      case (true, idx) if knownFeatures.exists(_.mandatory == idx) => Right((knownFeatures.find(_.mandatory == idx).get, Mandatory))
-      case (true, idx) => Left(UnknownFeature(idx))
+    val featureIds = bits.toIndexedSeq.reverse.zipWithIndex.filter(_._1).map(_._2)
+    Features(featureIds: _*)
+  }
+
+  def apply(featureIds: Int*): Features = {
+    val all = featureIds.collect {
+      case idx if knownFeatures.exists(_.optional == idx) => Right((knownFeatures.find(_.optional == idx).get, Optional))
+      case idx if knownFeatures.exists(_.mandatory == idx) => Right((knownFeatures.find(_.mandatory == idx).get, Mandatory))
+      case idx => Left(UnknownFeature(idx))
     }
     Features(
       activated = all.collect { case Right((feature, support)) => feature -> support }.toMap,
