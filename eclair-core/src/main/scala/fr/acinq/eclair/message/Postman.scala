@@ -43,7 +43,7 @@ object Postman {
   private case class WrappedMessage(finalPayload: FinalPayload, pathId: Option[ByteVector]) extends Command
   sealed trait OnionMessageResponse
   case object NoReply extends OnionMessageResponse
-  case class Response(payload: FinalPayload) extends OnionMessageResponse
+  case class Response(payload: FinalPayload, pathId: ByteVector32) extends OnionMessageResponse
   case class SendingStatus(status: MessageRelay.Status) extends OnionMessageResponse with Command
   // @formatter:on
 
@@ -59,13 +59,21 @@ object Postman {
       // For messages not expecting a reply, send success or failure to send
       val sendStatusTo = new mutable.HashMap[ByteVector32, ActorRef[OnionMessageResponse]]()
 
-      Behaviors.receiveMessagePartial {
+      // For pairs or messages expecting one reply, send first reply or second failure
+      val messagePair = new mutable.HashMap[ByteVector32, (ByteVector32, ActorRef[OnionMessageResponse])]()
+
+      Behaviors.receiveMessage {
         case WrappedMessage(finalPayload, Some(pathId)) if pathId.length == 32 =>
           val id = ByteVector32(pathId)
           subscribed.get(id).foreach(ref => {
             subscribed -= id
-            ref ! Response(finalPayload)
+            ref ! Response(finalPayload, id)
           })
+          messagePair.get(id).foreach { case (otherId, ref) =>
+            messagePair -= id
+            messagePair -= otherId
+            ref ! Response(finalPayload, id)
+          }
           Behaviors.same
         case WrappedMessage(_, _) =>
           // ignoring message with invalid or missing pathId
@@ -85,6 +93,11 @@ object Postman {
             subscribed -= pathId
             ref ! NoReply
           })
+          messagePair.get(pathId).foreach { case (otherId, ref) =>
+            messagePair -= pathId
+            messagePair -= otherId
+            ref ! NoReply
+          }
           Behaviors.same
         case status@SendingStatus(MessageRelay.Sent(messageId)) =>
           sendStatusTo.get(messageId).foreach(ref => {
@@ -101,6 +114,12 @@ object Postman {
             subscribed -= status.messageId
             ref ! SendingStatus(status)
           })
+          messagePair.get(status.messageId).foreach { case (otherId, ref) =>
+            messagePair -= status.messageId
+            if (!messagePair.contains(otherId)) {
+              ref ! NoReply
+            }
+          }
           Behaviors.same
       }
     })
